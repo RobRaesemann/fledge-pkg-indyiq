@@ -46,12 +46,29 @@ Local mode (dev loop) — packages a working tree in place, honouring local edit
 
 Artifacts land in `packages/build/`.
 
+## Build environment (C++)
+
+`docker/fledge-buildenv/Dockerfile` defines a shared image with the C++
+toolchain, Fledge source (headers, at `$FLEDGE_ROOT`), and a prebuilt
+libplctag. It is published to `ghcr.io/robraesemann/fledge-buildenv` by
+`.github/workflows/build-buildenv.yml` (on Dockerfile change, weekly, or
+manually).
+
+Build/run it locally:
+
+```bash
+docker build -t fledge-buildenv docker/fledge-buildenv
+docker run --rm -v "$PWD:/work" fledge-buildenv ./make_deb -s -l /path/to/plugin
+```
+
 ## CI
 
 `.github/workflows/build-plugin.yml` is a reusable workflow. Each plugin repo
 adds a thin caller (see `examples/plugin-package.yml`) that invokes it on tag /
-push. C++ plugins should point the `container` input at an image that already
-has the Fledge build environment.
+push. It runs two jobs: first it builds/refreshes the `fledge-buildenv` image
+(cached — fast when the Dockerfile is unchanged), then it compiles the plugin
+.deb *inside* that image. Pure-Python plugins can pass `refresh_image: false`
+to skip the image and build on the bare runner.
 
 ## Adding a new plugin
 

@@ -5,15 +5,15 @@
 ##
 ##   jobs:
 ##     package:
+##       permissions: { contents: read, packages: write }
 ##       uses: RobRaesemann/fledge-pkg-indyiq/.github/workflows/build-plugin.yml@main
 ##       with:
 ##         repo: fledge-south-ethernetip
 ##         branch: ${{ github.ref_name }}
 ##
-## For C++ plugins the runner needs Fledge dev headers + a toolchain. The
-## simplest reliable path is to run inside a container image that already has
-## the Fledge build environment; set `container` below to that image. For pure
-## Python plugins the default ubuntu runner is enough.
+## Flow: (1) build/refresh the fledge-buildenv image (cached — fast when the
+## Dockerfile is unchanged), then (2) build the plugin .deb *inside* that image.
+## Pure-Python plugins can set refresh_image:false and build on the bare runner.
 ##
 name: build-plugin
 
@@ -34,33 +34,77 @@ on:
         required: false
         default: RobRaesemann
         type: string
-      container:
-        description: Optional container image with the Fledge build env (C++ plugins)
+      pkg_ref:
+        description: Ref of the central packaging repo to use (make_deb + Dockerfile)
         required: false
-        default: ""
+        default: main
         type: string
+      image:
+        description: fledge-buildenv image ref (must be lowercase)
+        required: false
+        default: ghcr.io/robraesemann/fledge-buildenv:latest
+        type: string
+      refresh_image:
+        description: Rebuild the buildenv image before packaging (needed for C++)
+        required: false
+        default: true
+        type: boolean
+
+env:
+  PKG_REPO: RobRaesemann/fledge-pkg-indyiq
 
 jobs:
-  package:
+  # (1) Build/refresh the shared build environment image.
+  buildenv:
+    if: ${{ inputs.refresh_image }}
     runs-on: ubuntu-latest
-    container: ${{ inputs.container || null }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.PKG_REPO }}
+          ref: ${{ inputs.pkg_ref }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: docker/fledge-buildenv
+          push: true
+          tags: ${{ inputs.image }}
+          cache-from: type=registry,ref=${{ inputs.image }}-buildcache
+          cache-to: type=registry,ref=${{ inputs.image }}-buildcache,mode=max
+
+  # (2) Build the plugin .deb inside the build environment.
+  package:
+    needs: [buildenv]
+    if: ${{ always() && (needs.buildenv.result == 'success' || needs.buildenv.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ inputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout packaging repo
         uses: actions/checkout@v4
-
-      - name: Install base tooling
-        run: |
-          if command -v apt-get >/dev/null 2>&1; then
-            apt-get update
-            apt-get install -y --no-install-recommends dpkg-dev cmake g++ git ca-certificates
-          fi
+        with:
+          repository: ${{ env.PKG_REPO }}
+          ref: ${{ inputs.pkg_ref }}
 
       - name: Build package
-        env:
-          FLEDGE_ROOT: ${{ env.FLEDGE_ROOT }}
+        # -s: libplctag (and toolchain) are already present in the buildenv image.
         run: |
           chmod +x ./make_deb
-          ./make_deb -o "${{ inputs.org }}" -b "${{ inputs.branch }}" "${{ inputs.repo }}"
+          ./make_deb -s -o "${{ inputs.org }}" -b "${{ inputs.branch }}" "${{ inputs.repo }}"
 
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v4
