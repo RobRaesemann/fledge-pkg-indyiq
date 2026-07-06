@@ -1,0 +1,70 @@
+##
+## Reusable workflow: build a .deb for a single IndyIQ Fledge plugin.
+##
+## A plugin repo calls this from its own workflow, e.g.:
+##
+##   jobs:
+##     package:
+##       uses: RobRaesemann/fledge-pkg-indyiq/.github/workflows/build-plugin.yml@main
+##       with:
+##         repo: fledge-south-ethernetip
+##         branch: ${{ github.ref_name }}
+##
+## For C++ plugins the runner needs Fledge dev headers + a toolchain. The
+## simplest reliable path is to run inside a container image that already has
+## the Fledge build environment; set `container` below to that image. For pure
+## Python plugins the default ubuntu runner is enough.
+##
+name: build-plugin
+
+on:
+  workflow_call:
+    inputs:
+      repo:
+        description: Plugin repository name (under the org)
+        required: true
+        type: string
+      branch:
+        description: Branch/ref of the plugin repo to package
+        required: false
+        default: main
+        type: string
+      org:
+        description: GitHub org/user hosting the plugin repos
+        required: false
+        default: RobRaesemann
+        type: string
+      container:
+        description: Optional container image with the Fledge build env (C++ plugins)
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    container: ${{ inputs.container || null }}
+    steps:
+      - name: Checkout packaging repo
+        uses: actions/checkout@v4
+
+      - name: Install base tooling
+        run: |
+          if command -v apt-get >/dev/null 2>&1; then
+            apt-get update
+            apt-get install -y --no-install-recommends dpkg-dev cmake g++ git ca-certificates
+          fi
+
+      - name: Build package
+        env:
+          FLEDGE_ROOT: ${{ env.FLEDGE_ROOT }}
+        run: |
+          chmod +x ./make_deb
+          ./make_deb -o "${{ inputs.org }}" -b "${{ inputs.branch }}" "${{ inputs.repo }}"
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.repo }}-deb
+          path: packages/build/*.deb
+          if-no-files-found: error

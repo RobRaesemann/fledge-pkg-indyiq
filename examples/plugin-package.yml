@@ -1,0 +1,19 @@
+##
+## Example caller workflow. Copy this into a plugin repo as
+## .github/workflows/package.yml and adjust `repo` (and `container` for C++).
+##
+name: package
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  package:
+    uses: RobRaesemann/fledge-pkg-indyiq/.github/workflows/build-plugin.yml@main
+    with:
+      repo: fledge-south-ethernetip
+      branch: ${{ github.ref_name }}
+      # For C++ plugins, point at an image with the Fledge build environment:
+      # container: ghcr.io/robraesemann/fledge-buildenv:latest

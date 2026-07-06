@@ -1,0 +1,51 @@
+#!/bin/sh
+
+##--------------------------------------------------------------------
+## Copyright (c) 2026 IndyIQ / Rob Raesemann
+##
+## Licensed under the Apache License, Version 2.0 (the "License");
+## you may not use this file except in compliance with the License.
+## You may obtain a copy of the License at
+##
+##     http://www.apache.org/licenses/LICENSE-2.0
+##
+## Unless required by applicable law or agreed to in writing, software
+## distributed under the License is distributed on an "AS IS" BASIS,
+## WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+## See the License for the specific language governing permissions and
+## limitations under the License.
+##--------------------------------------------------------------------
+
+##--------------------------------------------------------------------
+##
+## @postinst DEBIAN/postinst
+## This script is used to execute post installation tasks.
+##
+##--------------------------------------------------------------------
+
+set -e
+
+set_files_ownership () {
+    chown -R root:root /usr/local/fledge/__INSTALL_DIR__
+}
+
+set_files_ownership
+
+# Refresh the dynamic linker cache so any bundled shared objects (e.g. a
+# vendored native library) are discoverable via the system loader.
+if command -v ldconfig >/dev/null 2>&1; then
+    ldconfig || true
+fi
+
+# Optional per-plugin install hook. C++ plugins that vendor native libraries or
+# Python plugins that need pip dependencies ship an extras_install.sh alongside
+# the plugin and it is executed here.
+if [ -f /usr/local/fledge/__INSTALL_DIR__/extras_install.sh ]; then
+    ./usr/local/fledge/__INSTALL_DIR__/extras_install.sh
+fi
+
+echo __PLUGIN_NAME__ __PLUGIN_TYPE__ plugin is installed.
+
+echo "
+__PLUGIN_NOTES__
+"

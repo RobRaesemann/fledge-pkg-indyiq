@@ -1,0 +1,298 @@
+#!/usr/bin/env bash
+
+##--------------------------------------------------------------------
+## Copyright (c) 2026 IndyIQ / Rob Raesemann
+##
+## Licensed under the Apache License, Version 2.0 (the "License");
+## you may not use this file except in compliance with the License.
+## You may obtain a copy of the License at
+##
+##     http://www.apache.org/licenses/LICENSE-2.0
+##
+## Unless required by applicable law or agreed to in writing, software
+## distributed under the License is distributed on an "AS IS" BASIS,
+## WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+## See the License for the specific language governing permissions and
+## limitations under the License.
+##--------------------------------------------------------------------
+##
+## Generic Debian packaging driver for IndyIQ Fledge plugins.
+##
+## This single script packages BOTH Python and C++ plugins. It reads the same
+## metadata contract from each plugin repo (Package, Description, VERSION,
+## fledge.version, and — for C++ — requirements.sh) and produces a .deb with the
+## standard Fledge on-disk layout. It works in two modes:
+##
+##   Clone mode (CI / release):
+##       ./make_deb [-b BRANCH] [-o ORG] <repo-name> [<repo-name> ...]
+##     Clones https://github.com/<ORG>/<repo-name> into a temp dir and builds.
+##
+##   Local mode (dev loop):
+##       ./make_deb -l <path-to-plugin-repo>
+##     Packages the given working tree in place — no clone, honours local edits.
+##
+## The plugin *language* is taken from the Package file (plugin_lang=python|cpp)
+## if set, otherwise auto-detected: a top-level python/ dir => python, a
+## CMakeLists.txt => cpp.
+##
+
+set -e
+
+# ---------------------------------------------------------------------------
+# Defaults & option parsing
+# ---------------------------------------------------------------------------
+GIT_ORG="${FLEDGE_PKG_ORG:-RobRaesemann}"
+BRANCH="${FLEDGE_PKG_BRANCH:-main}"
+LOCAL_MODE=0
+LOCAL_PATH=""
+SKIP_REQUIREMENTS=0
+
+USAGE="$(basename "$0") [-h] [-s] [-b BRANCH] [-o ORG] { -l <path> | <repo-name>... }
+
+Build Debian package(s) for IndyIQ Fledge plugins.
+
+Options:
+  -h            Show this help text
+  -s            Skip requirements.sh (build dependencies already installed)
+  -b BRANCH     Git branch to clone in clone mode (default: ${BRANCH})
+  -o ORG        GitHub org/user to clone from (default: ${GIT_ORG})
+  -l <path>     Local mode: package the working tree at <path> instead of cloning
+
+Environment:
+  FLEDGE_ROOT       Fledge source/install root, forwarded to cmake (C++ plugins)
+  FLEDGE_PKG_ORG    Overrides the default GitHub org (-o wins over this)
+  FLEDGE_PKG_BRANCH Overrides the default branch (-b wins over this)"
+
+while getopts ":hsl:b:o:" opt; do
+    case "$opt" in
+        h) echo "${USAGE}"; exit 0 ;;
+        s) SKIP_REQUIREMENTS=1 ;;
+        l) LOCAL_MODE=1; LOCAL_PATH="${OPTARG}" ;;
+        b) BRANCH="${OPTARG}" ;;
+        o) GIT_ORG="${OPTARG}" ;;
+        \?) echo "Invalid option -${OPTARG}" >&2; echo "${USAGE}" >&2; exit 1 ;;
+        :) echo "Option -${OPTARG} requires an argument" >&2; exit 1 ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+# Directory containing this script == the central packaging repo (template root).
+PKG_ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+# ---------------------------------------------------------------------------
+# build_one <source-tree-dir>
+#   Packages a single plugin whose checked-out source lives in the given dir.
+# ---------------------------------------------------------------------------
+build_one() {
+    local GIT_ROOT="$1"
+    GIT_ROOT="$(cd "${GIT_ROOT}" && pwd)"
+
+    local package_manager=deb
+    local arch archname
+    arch=$(arch)
+    archname=$(dpkg --print-architecture)
+
+    for required in Package Description fledge.version; do
+        if [ ! -f "${GIT_ROOT}/${required}" ]; then
+            echo "Missing required packaging file: ${GIT_ROOT}/${required}" >&2
+            exit 1
+        fi
+    done
+
+    # Package metadata: plugin_name, plugin_type, plugin_install_dirname,
+    # plugin_package_name, plugin_lang, requirements, additional_libs, ...
+    # shellcheck disable=SC1091
+    . "${GIT_ROOT}/Package"
+
+    # Version: prefer a type/name-specific file, fall back to VERSION.
+    local version=""
+    if [ -f "${GIT_ROOT}/VERSION.${plugin_type}.${plugin_name}" ]; then
+        version=$(cat "${GIT_ROOT}/VERSION.${plugin_type}.${plugin_name}")
+    elif [ -f "${GIT_ROOT}/VERSION" ]; then
+        version=$(cat "${GIT_ROOT}/VERSION")
+    else
+        echo "Missing VERSION (or VERSION.${plugin_type}.${plugin_name}) in ${GIT_ROOT}" >&2
+        exit 1
+    fi
+
+    local fledge_version
+    fledge_version=$(tr -d ' ' < "${GIT_ROOT}/fledge.version" | grep 'fledge_version' | head -1 | sed -e 's/\(.*\)version\(.*\)/\2/g')
+
+    local pkg_name
+    if [ "${plugin_package_name}" ]; then
+        pkg_name=${plugin_package_name}
+    else
+        pkg_name="fledge-${plugin_type}-${plugin_name}"
+    fi
+    local package_name="${pkg_name}_${version}_${arch}"
+
+    # Resolve plugin language.
+    local lang="${plugin_lang:-}"
+    if [ -z "${lang}" ]; then
+        if [ -d "${GIT_ROOT}/python" ]; then
+            lang=python
+        elif [ -f "${GIT_ROOT}/CMakeLists.txt" ]; then
+            lang=cpp
+        else
+            echo "Cannot determine plugin language for ${plugin_name}; set plugin_lang=python|cpp in Package" >&2
+            exit 1
+        fi
+    fi
+
+    local BUILD_ROOT="${GIT_ROOT}/packages/build"
+    local STAGE="${BUILD_ROOT}/${package_name}"
+
+    echo "----------------------------------------------------------------"
+    echo "Plugin            : ${plugin_type}/${plugin_name} (${lang})"
+    echo "Source tree       : ${GIT_ROOT}"
+    echo "Package name      : ${package_name}"
+    echo "Fledge dependency : ${fledge_version}"
+    echo "Staging in        : ${STAGE}"
+    echo "----------------------------------------------------------------"
+
+    rm -rf "${STAGE}"
+    mkdir -p "${STAGE}"
+
+    # Install path relative to /usr/local/fledge, differs by language.
+    local installs
+    if [ "${lang}" = "python" ]; then
+        installs="python/fledge/plugins/${plugin_type}/${plugin_install_dirname}"
+    else
+        installs="plugins/${plugin_type}/${plugin_install_dirname}"
+    fi
+
+    # ---- DEBIAN control dir from the central templates --------------------
+    echo -n "Populating DEBIAN control files... "
+    mkdir -p "${STAGE}/DEBIAN"
+    cp -R "${PKG_ROOT}/packages/DEBIAN/." "${STAGE}/DEBIAN/"
+    local deb_path="${STAGE}/DEBIAN"
+
+    local desc
+    desc=$(cat "${GIT_ROOT}/Description")
+    sed -i "s/__VERSION__/${version}/g" "${deb_path}/control"
+    sed -i "s/__NAME__/${pkg_name}/g" "${deb_path}/control"
+    sed -i "s/__ARCH__/${archname}/g" "${deb_path}/control"
+    sed -i "s/__REQUIRES__/${requirements}/g" "${deb_path}/control"
+    sed -i "s/fledge,/fledge (${fledge_version}),/" "${deb_path}/control"
+    sed -i "s/fledge$/fledge (${fledge_version})/" "${deb_path}/control"
+    sed -i "s|__DESCRIPTION__|${desc}|g" "${deb_path}/control"
+
+    sed -i "s|__INSTALL_DIR__|${installs}|g" "${deb_path}/postinst"
+    sed -i "s/__PLUGIN_NAME__/${plugin_name}/g" "${deb_path}/postinst"
+    sed -i "s/__PLUGIN_TYPE__/${plugin_type}/g" "${deb_path}/postinst"
+    if [ -f "${GIT_ROOT}/install_notes.txt" ]; then
+        local notes
+        notes=$(cat "${GIT_ROOT}/install_notes.txt")
+        sed -i "s/__PLUGIN_NOTES__/${notes}/g" "${deb_path}/postinst"
+    else
+        sed -i "s/__PLUGIN_NOTES__//g" "${deb_path}/postinst"
+    fi
+    sed -i "s|__INSTALL_DIR__|${installs}|g" "${deb_path}/postrm"
+    chmod 755 "${deb_path}/postinst" "${deb_path}/postrm"
+    echo "Done."
+
+    # ---- Lay out the payload ---------------------------------------------
+    mkdir -p "${STAGE}/usr/local/fledge/${installs}"
+    echo "${pkg_name}" > "${STAGE}/usr/local/fledge/${installs}/.Package"
+
+    if [ "${lang}" = "python" ]; then
+        # Python plugin: copy the plugin package tree verbatim.
+        local py_src="${GIT_ROOT}/python/fledge/plugins/${plugin_type}/${plugin_install_dirname}"
+        if [ ! -d "${py_src}" ]; then
+            echo "Expected Python plugin source at ${py_src}" >&2
+            exit 1
+        fi
+        cp -R "${py_src}/." "${STAGE}/usr/local/fledge/${installs}/"
+        # Best-effort version stamp into any module exposing __version__.
+        find "${STAGE}/usr/local/fledge/${installs}" -name '*.py' -print0 \
+            | xargs -0 -r sed -i "s/^__version__.*/__version__ = \"${version}\"/" || true
+        # Runtime pip deps (if any) are declared in requirements.txt and handled
+        # by the plugin's own extras_install.sh (invoked from postinst).
+        if [ -f "${GIT_ROOT}/requirements.txt" ]; then
+            cp "${GIT_ROOT}/requirements.txt" "${STAGE}/usr/local/fledge/${installs}/"
+        fi
+    else
+        # C++ plugin: install build deps, cmake build, copy the shared object(s).
+        (
+            cd "${GIT_ROOT}"
+            if [ "${SKIP_REQUIREMENTS}" = "0" ] && [ -f requirements.sh ]; then
+                ./requirements.sh
+            fi
+            echo "${version}" > VERSION
+            mkdir -p build
+            cd build
+            if [ -n "${FLEDGE_ROOT}" ]; then
+                cmake -DFLEDGE_ROOT="${FLEDGE_ROOT}" -DBUILD_TESTS=OFF ..
+            else
+                cmake -DBUILD_TESTS=OFF ..
+            fi
+            # Build only the plugin target if the plugin advertises one; else all.
+            if [ -n "${plugin_build_target}" ]; then
+                cmake --build . --target "${plugin_build_target}"
+            else
+                cmake --build .
+            fi
+        )
+        cp -R --preserve=links "${GIT_ROOT}"/build/lib*.so* "${STAGE}/usr/local/fledge/${installs}/"
+    fi
+
+    # ---- Bundle additional shared libraries (e.g. libplctag) --------------
+    # Format: <install-dir>:<file>[:<file>...],<install-dir>:<file>...
+    if [ "${additional_libs}" != "" ]; then
+        echo "Bundling additional libraries..."
+        for entry in $(echo "${additional_libs}" | sed "s/,/ /g"); do
+            if [[ "${entry}" == *":"* ]]; then
+                local tokens iter=0 dir=""
+                tokens=$(echo "${entry}" | sed "s/:/ /g")
+                for token in ${tokens}; do
+                    if [ "${iter}" = "0" ]; then
+                        dir="${STAGE}/${token}"
+                        mkdir -p "${dir}"
+                    else
+                        cp -R --preserve=links "${token}" "${dir}/"
+                    fi
+                    iter=$((iter + 1))
+                done
+            else
+                echo "Malformed additional_libs entry '${entry}' — expected <dir>:<file>[:<file>...]" >&2
+                exit 1
+            fi
+        done
+    fi
+
+    # ---- Build the .deb ---------------------------------------------------
+    echo "Building the package..."
+    ( cd "${BUILD_ROOT}" && dpkg-deb --root-owner-group --build "${package_name}" )
+    echo "Build complete: ${STAGE}.deb"
+    echo
+}
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+if [ "${LOCAL_MODE}" = "1" ]; then
+    if [ -z "${LOCAL_PATH}" ]; then
+        echo "Local mode (-l) requires a path." >&2
+        exit 1
+    fi
+    build_one "${LOCAL_PATH}"
+    exit 0
+fi
+
+if [ "$#" -lt 1 ]; then
+    echo "${USAGE}" >&2
+    exit 1
+fi
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "${WORK}"' EXIT
+for repo in "$@"; do
+    echo "Cloning ${GIT_ORG}/${repo} (branch ${BRANCH})..."
+    git clone --depth 1 --branch "${BRANCH}" \
+        "https://github.com/${GIT_ORG}/${repo}.git" "${WORK}/${repo}"
+    build_one "${WORK}/${repo}"
+    # Surface the artifact next to the central repo for easy pickup in CI.
+    mkdir -p "${PKG_ROOT}/packages/build"
+    cp "${WORK}/${repo}"/packages/build/*.deb "${PKG_ROOT}/packages/build/" 2>/dev/null || true
+done
+echo "All packages written to ${PKG_ROOT}/packages/build/"

@@ -1,0 +1,10 @@
+Package: __NAME__
+Version: __VERSION__
+Section: devel
+Priority: optional
+Architecture: __ARCH__
+Depends: __REQUIRES__
+Conflicts:
+Maintainer: IndyIQ / Rob Raesemann <rob@raesemann.com>
+Homepage: https://github.com/RobRaesemann
+Description: __DESCRIPTION__
