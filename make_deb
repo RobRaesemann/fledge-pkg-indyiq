@@ -92,7 +92,7 @@ build_one() {
     arch=$(arch)
     archname=$(dpkg --print-architecture)
 
-    for required in Package Description fledge.version; do
+    for required in Package Description; do
         if [ ! -f "${GIT_ROOT}/${required}" ]; then
             echo "Missing required packaging file: ${GIT_ROOT}/${required}" >&2
             exit 1
@@ -104,19 +104,38 @@ build_one() {
     # shellcheck disable=SC1091
     . "${GIT_ROOT}/Package"
 
-    # Version: prefer a type/name-specific file, fall back to VERSION.
+    # Version sources, in order of preference:
+    #   1. VERSION.<type>.<name> — bare "1.0.0", OR fledge-pkg style with a
+    #      "<name>_version=1.0.0" line (and optionally "fledge_version>=X").
+    #   2. VERSION — bare version string.
+    # The Fledge dependency comes from fledge.version, else from a
+    # "fledge_version" line in VERSION.<type>.<name>.
+    local verfile="${GIT_ROOT}/VERSION.${plugin_type}.${plugin_name}"
     local version=""
-    if [ -f "${GIT_ROOT}/VERSION.${plugin_type}.${plugin_name}" ]; then
-        version=$(cat "${GIT_ROOT}/VERSION.${plugin_type}.${plugin_name}")
+    if [ -f "${verfile}" ]; then
+        if grep -q "${plugin_name}_version" "${verfile}"; then
+            version=$(tr -d ' ' < "${verfile}" | grep "${plugin_name}_version" | head -1 | cut -d= -f2)
+        else
+            version=$(head -1 "${verfile}")
+        fi
     elif [ -f "${GIT_ROOT}/VERSION" ]; then
-        version=$(cat "${GIT_ROOT}/VERSION")
-    else
-        echo "Missing VERSION (or VERSION.${plugin_type}.${plugin_name}) in ${GIT_ROOT}" >&2
+        version=$(head -1 "${GIT_ROOT}/VERSION")
+    fi
+    if [ -z "${version}" ]; then
+        echo "Cannot determine plugin version (no VERSION or VERSION.${plugin_type}.${plugin_name}) in ${GIT_ROOT}" >&2
         exit 1
     fi
 
-    local fledge_version
-    fledge_version=$(tr -d ' ' < "${GIT_ROOT}/fledge.version" | grep 'fledge_version' | head -1 | sed -e 's/\(.*\)version\(.*\)/\2/g')
+    local fledge_version=""
+    if [ -f "${GIT_ROOT}/fledge.version" ]; then
+        fledge_version=$(tr -d ' ' < "${GIT_ROOT}/fledge.version" | grep 'fledge_version' | head -1 | sed -e 's/\(.*\)version\(.*\)/\2/g')
+    elif [ -f "${verfile}" ] && grep -q 'fledge_version' "${verfile}"; then
+        fledge_version=$(tr -d ' ' < "${verfile}" | grep 'fledge_version' | head -1 | sed -e 's/\(.*\)version\(.*\)/\2/g')
+    fi
+    if [ -z "${fledge_version}" ]; then
+        echo "Cannot determine Fledge dependency (no fledge.version and no fledge_version line) in ${GIT_ROOT}" >&2
+        exit 1
+    fi
 
     local pkg_name
     if [ "${plugin_package_name}" ]; then
@@ -124,7 +143,6 @@ build_one() {
     else
         pkg_name="fledge-${plugin_type}-${plugin_name}"
     fi
-    local package_name="${pkg_name}_${version}_${arch}"
 
     # Resolve plugin language.
     local lang="${plugin_lang:-}"
@@ -138,6 +156,13 @@ build_one() {
             exit 1
         fi
     fi
+
+    # Pure-Python plugins are architecture-independent.
+    if [ "${lang}" = "python" ]; then
+        arch=all
+        archname=all
+    fi
+    local package_name="${pkg_name}_${version}_${arch}"
 
     local BUILD_ROOT="${GIT_ROOT}/packages/build"
     local STAGE="${BUILD_ROOT}/${package_name}"
@@ -203,14 +228,22 @@ build_one() {
             exit 1
         fi
         cp -R "${py_src}/." "${STAGE}/usr/local/fledge/${installs}/"
+        # Don't ship dev-tree build artifacts (stale/non-reproducible bytecode).
+        find "${STAGE}/usr/local/fledge/${installs}" -depth -name '__pycache__' -type d -exec rm -rf {} + || true
+        find "${STAGE}/usr/local/fledge/${installs}" -name '*.pyc' -delete || true
         # Best-effort version stamp into any module exposing __version__.
         find "${STAGE}/usr/local/fledge/${installs}" -name '*.py' -print0 \
             | xargs -0 -r sed -i "s/^__version__.*/__version__ = \"${version}\"/" || true
-        # Runtime pip deps (if any) are declared in requirements.txt and handled
-        # by the plugin's own extras_install.sh (invoked from postinst).
-        if [ -f "${GIT_ROOT}/requirements.txt" ]; then
-            cp "${GIT_ROOT}/requirements.txt" "${STAGE}/usr/local/fledge/${installs}/"
-        fi
+        # Runtime pip deps (if any): bundle a requirements.txt into the payload
+        # so an extras_install.sh (invoked from postinst) can pip-install it.
+        # Accept either a top-level requirements.txt or the fledge convention
+        # python/requirements-<name>.txt.
+        for req in "${GIT_ROOT}/requirements.txt" "${GIT_ROOT}/python/requirements-${plugin_name}.txt"; do
+            if [ -f "${req}" ]; then
+                cp "${req}" "${STAGE}/usr/local/fledge/${installs}/requirements.txt"
+                break
+            fi
+        done
     else
         # C++ plugin: install build deps, cmake build, copy the shared object(s).
         (
