@@ -71,6 +71,11 @@ jobs:
       - name: Build package
         # -s: when using the buildenv image, libplctag (and the C++ toolchain)
         # are already present, so skip requirements.sh.
+        # GITHUB_TOKEN authenticates make_deb's clone of the plugin repo — it's
+        # always the same repo that triggered this run, so the run's own token
+        # already has the read access it needs.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           chmod +x ./make_deb
           if [ "${{ inputs.use_buildenv }}" = "true" ]; then
