@@ -5,15 +5,17 @@
 ##
 ##   jobs:
 ##     package:
-##       permissions: { contents: read, packages: write }
+##       permissions: { contents: read }
 ##       uses: RobRaesemann/fledge-pkg-indyiq/.github/workflows/build-plugin.yml@main
 ##       with:
 ##         repo: fledge-south-ethernetip
 ##         branch: ${{ github.ref_name }}
 ##
-## Flow: (1) build/refresh the fledge-buildenv image (cached — fast when the
-## Dockerfile is unchanged), then (2) build the plugin .deb *inside* that image.
-## Pure-Python plugins can set refresh_image:false and build on the bare runner.
+## Only fledge-pkg-indyiq's own build-buildenv.yml ever builds/pushes the
+## fledge-buildenv image (on Dockerfile change, weekly, or manually). Plugin
+## repos never build or push it — they only pull the public image (or skip it
+## entirely for pure-Python plugins via use_buildenv:false) and build inside
+## it. This avoids every plugin repo needing GHCR write access.
 ##
 name: build-plugin
 
@@ -40,12 +42,12 @@ on:
         default: main
         type: string
       image:
-        description: fledge-buildenv image ref (must be lowercase)
+        description: fledge-buildenv image ref (must be lowercase, publicly readable)
         required: false
         default: ghcr.io/robraesemann/fledge-buildenv:latest
         type: string
-      refresh_image:
-        description: Rebuild the buildenv image before packaging (needed for C++)
+      use_buildenv:
+        description: Build inside the shared fledge-buildenv image (needed for C++). Pure-Python plugins can set this false to build on the bare runner instead.
         required: false
         default: true
         type: boolean
@@ -54,45 +56,11 @@ env:
   PKG_REPO: RobRaesemann/fledge-pkg-indyiq
 
 jobs:
-  # (1) Build/refresh the shared build environment image.
-  buildenv:
-    if: ${{ inputs.refresh_image }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: ${{ env.PKG_REPO }}
-          ref: ${{ inputs.pkg_ref }}
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
-        with:
-          context: docker/fledge-buildenv
-          push: true
-          tags: ${{ inputs.image }}
-          cache-from: type=registry,ref=${{ inputs.image }}-buildcache
-          cache-to: type=registry,ref=${{ inputs.image }}-buildcache,mode=max
-
-  # (2) Build the plugin .deb inside the build environment.
   package:
-    needs: [buildenv]
-    if: ${{ always() && (needs.buildenv.result == 'success' || needs.buildenv.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: read
-    container:
-      image: ${{ inputs.image }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+    container: ${{ inputs.use_buildenv && inputs.image || '' }}
     steps:
       - name: Checkout packaging repo
         uses: actions/checkout@v4
@@ -101,10 +69,15 @@ jobs:
           ref: ${{ inputs.pkg_ref }}
 
       - name: Build package
-        # -s: libplctag (and toolchain) are already present in the buildenv image.
+        # -s: when using the buildenv image, libplctag (and the C++ toolchain)
+        # are already present, so skip requirements.sh.
         run: |
           chmod +x ./make_deb
-          ./make_deb -s -o "${{ inputs.org }}" -b "${{ inputs.branch }}" "${{ inputs.repo }}"
+          if [ "${{ inputs.use_buildenv }}" = "true" ]; then
+            ./make_deb -s -o "${{ inputs.org }}" -b "${{ inputs.branch }}" "${{ inputs.repo }}"
+          else
+            ./make_deb -o "${{ inputs.org }}" -b "${{ inputs.branch }}" "${{ inputs.repo }}"
+          fi
 
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v4

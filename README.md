@@ -50,9 +50,11 @@ Artifacts land in `packages/build/`.
 
 `docker/fledge-buildenv/Dockerfile` defines a shared image with the C++
 toolchain, Fledge source (headers, at `$FLEDGE_ROOT`), and a prebuilt
-libplctag. It is published to `ghcr.io/robraesemann/fledge-buildenv` by
+libplctag. **Only this repo builds and pushes it**, via
 `.github/workflows/build-buildenv.yml` (on Dockerfile change, weekly, or
-manually).
+manually) — plugin repos never build or push the image, they only pull it.
+The GHCR package is public so any repo can pull it with no credentials or
+per-repo access grants.
 
 Build/run it locally:
 
@@ -65,10 +67,9 @@ docker run --rm -v "$PWD:/work" fledge-buildenv ./make_deb -s -l /path/to/plugin
 
 `.github/workflows/build-plugin.yml` is a reusable workflow. Each plugin repo
 adds a thin caller (see `examples/plugin-package.yml`) that invokes it on tag /
-push. It runs two jobs: first it builds/refreshes the `fledge-buildenv` image
-(cached — fast when the Dockerfile is unchanged), then it compiles the plugin
-.deb *inside* that image. Pure-Python plugins can pass `refresh_image: false`
-to skip the image and build on the bare runner.
+push. It pulls the already-published `fledge-buildenv` image and compiles the
+plugin .deb inside it. Pure-Python plugins can pass `use_buildenv: false` to
+skip the image and build on the bare runner instead.
 
 ## Adding a new plugin
 

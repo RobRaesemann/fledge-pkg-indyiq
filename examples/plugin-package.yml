@@ -1,6 +1,6 @@
 ##
 ## Example caller workflow. Copy this into a plugin repo as
-## .github/workflows/package.yml and adjust `repo` (and refresh_image:false for
+## .github/workflows/package.yml and adjust `repo` (and use_buildenv:false for
 ## pure-Python plugins that don't need the C++ build environment).
 ##
 name: package
@@ -12,12 +12,10 @@ on:
 
 jobs:
   package:
-    # packages:write lets the reusable workflow build/push the buildenv image.
     permissions:
       contents: read
-      packages: write
     uses: RobRaesemann/fledge-pkg-indyiq/.github/workflows/build-plugin.yml@main
     with:
       repo: fledge-south-ethernetip
       branch: ${{ github.ref_name }}
-      # refresh_image: false   # uncomment for pure-Python plugins
+      # use_buildenv: false   # uncomment for pure-Python plugins
