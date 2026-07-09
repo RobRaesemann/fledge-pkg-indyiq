@@ -49,12 +49,17 @@ Artifacts land in `packages/build/`.
 ## Build environment (C++)
 
 `docker/fledge-buildenv/Dockerfile` defines a shared image with the C++
-toolchain, Fledge source (headers, at `$FLEDGE_ROOT`), and a prebuilt
-libplctag. **Only this repo builds and pushes it**, via
+toolchain, Fledge source at `$FLEDGE_ROOT` with its C libraries pre-built
+(`cmake_build/C/lib/*.so` — `common-lib`, `services-common-lib`,
+`filters-common-lib`), and a prebuilt libplctag. Plugins that only need Fledge
+headers build as before; plugins that link a Fledge shared library via
+`FindFledge.cmake` (e.g. `fledge-south-s2opcua` needing `common-lib`) now find
+it already built. **Only this repo builds and pushes the image**, via
 `.github/workflows/build-buildenv.yml` (on Dockerfile change, weekly, or
-manually) — plugin repos never build or push the image, they only pull it.
-The GHCR package is public so any repo can pull it with no credentials or
-per-repo access grants.
+manually) — plugin repos never build or push it, they only pull it, so the
+(now much heavier) Fledge C build is a one-time cost per image build, never
+per plugin build. The GHCR package is public so any repo can pull it with no
+credentials or per-repo access grants.
 
 Build/run it locally:
 

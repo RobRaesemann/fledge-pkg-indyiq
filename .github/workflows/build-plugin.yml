@@ -51,6 +51,11 @@ on:
         required: false
         default: true
         type: boolean
+      skip_requirements:
+        description: Skip the plugin's requirements.sh. Only safe for plugins whose native deps are already baked into the buildenv image (e.g. ethernetip's libplctag) — most C++ plugins have their own deps and need this false (the default).
+        required: false
+        default: false
+        type: boolean
 
 env:
   PKG_REPO: RobRaesemann/fledge-pkg-indyiq
@@ -69,8 +74,6 @@ jobs:
           ref: ${{ inputs.pkg_ref }}
 
       - name: Build package
-        # -s: when using the buildenv image, libplctag (and the C++ toolchain)
-        # are already present, so skip requirements.sh.
         # GITHUB_TOKEN authenticates make_deb's clone of the plugin repo — it's
         # always the same repo that triggered this run, so the run's own token
         # already has the read access it needs.
@@ -78,7 +81,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           chmod +x ./make_deb
-          if [ "${{ inputs.use_buildenv }}" = "true" ]; then
+          if [ "${{ inputs.skip_requirements }}" = "true" ]; then
             ./make_deb -s -o "${{ inputs.org }}" -b "${{ inputs.branch }}" "${{ inputs.repo }}"
           else
             ./make_deb -o "${{ inputs.org }}" -b "${{ inputs.branch }}" "${{ inputs.repo }}"
