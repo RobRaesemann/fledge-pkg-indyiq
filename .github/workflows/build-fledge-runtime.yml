@@ -1,0 +1,70 @@
+##
+## Builds and publishes the Fledge core runtime image to GHCR, using
+## fledge-iot/fledge's own multistage Dockerfile (it's public — no vendoring
+## needed here). This is the base image build-fledge-image.yml installs all
+## IndyIQ plugins into.
+## Runs when this workflow file changes, weekly (to pick up upstream Fledge
+## changes / base-image security updates), or on demand.
+##
+name: build-fledge-runtime
+
+on:
+  push:
+    paths:
+      - .github/workflows/build-fledge-runtime.yml
+  schedule:
+    - cron: '0 7 * * 1'   # Mondays 07:00 UTC
+  workflow_dispatch:
+    inputs:
+      fledge_branch:
+        description: Fledge branch/tag to build (must match what plugins were compiled against)
+        required: false
+        default: v3.1.0
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fledge-iot/fledge
+        uses: actions/checkout@v4
+        with:
+          repository: fledge-iot/fledge
+          ref: ${{ inputs.fledge_branch || 'v3.1.0' }}
+          fetch-depth: 0
+
+      - name: Lowercase image name
+        id: img
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/fledge-runtime" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build metadata
+        id: meta
+        run: |
+          echo "vcs_ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            FLEDGE_BRANCH=${{ inputs.fledge_branch || 'v3.1.0' }}
+            BUILD_DATE=${{ steps.meta.outputs.build_date }}
+            VCS_REF=${{ steps.meta.outputs.vcs_ref }}
+            BUILD_VERSION=${{ inputs.fledge_branch || 'v3.1.0' }}
+          tags: |
+            ${{ steps.img.outputs.image }}:latest
+            ${{ steps.img.outputs.image }}:${{ inputs.fledge_branch || 'v3.1.0' }}
+          cache-from: type=registry,ref=${{ steps.img.outputs.image }}-buildcache
+          cache-to: type=registry,ref=${{ steps.img.outputs.image }}-buildcache,mode=max
