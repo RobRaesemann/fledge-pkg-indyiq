@@ -37,9 +37,18 @@ if command -v ldconfig >/dev/null 2>&1; then
     ldconfig || true
 fi
 
+# Runtime pip deps: make_deb bundles requirements.txt (if the plugin provides
+# one) into the payload. --break-system-packages is required on Python 3.11+
+# (PEP 668) — every image this runs in is Ubuntu 24.04 / Python 3.12, so it's
+# safe to pass unconditionally.
+if [ -f /usr/local/fledge/__INSTALL_DIR__/requirements.txt ]; then
+    python3 -m pip install --break-system-packages --quiet \
+        -r /usr/local/fledge/__INSTALL_DIR__/requirements.txt
+fi
+
 # Optional per-plugin install hook. C++ plugins that vendor native libraries or
-# Python plugins that need pip dependencies ship an extras_install.sh alongside
-# the plugin and it is executed here.
+# Python plugins that need something beyond a plain pip install ship an
+# extras_install.sh alongside the plugin and it is executed here.
 if [ -f /usr/local/fledge/__INSTALL_DIR__/extras_install.sh ]; then
     ./usr/local/fledge/__INSTALL_DIR__/extras_install.sh
 fi
