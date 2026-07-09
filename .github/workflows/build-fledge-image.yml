@@ -1,0 +1,102 @@
+##
+## Builds and publishes the combined Fledge image: the fledge-runtime base
+## image plus every onboarded IndyIQ plugin, installed from the latest
+## successful .deb artifact on each plugin repo's own package workflow.
+##
+## Downloading artifacts across 23 separate (mostly private) plugin repos
+## needs more than the default GITHUB_TOKEN can grant (it's only ever scoped
+## to this repo) — requires a classic PAT with `repo` scope stored as the
+## ARTIFACT_PAT secret on this repo.
+##
+name: build-fledge-image
+
+on:
+  workflow_dispatch:
+    inputs:
+      fledge_runtime_tag:
+        description: fledge-runtime base image tag to build onto
+        required: false
+        default: v3.1.0
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  GH_TOKEN: ${{ secrets.ARTIFACT_PAT }}
+  DEBS_DIR: docker/fledge-with-plugins/debs
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download latest successful .deb from every plugin repo
+        run: |
+          set -euo pipefail
+          mkdir -p "${DEBS_DIR}"
+          repos=(
+            fledge-south-ethernetip
+            fledge-south-restclient
+            fledge-south-http
+            fledge-south-s7-python
+            fledge-south-s2opcua
+            fledge-south-mqtt
+            fledge-south-mqtt-sparkplug
+            fledge-filter-rename
+            fledge-filter-scale
+            fledge-filter-asset
+            fledge-filter-python35
+            fledge-filter-change
+            fledge-filter-replace
+            fledge-filter-log
+            fledge-filter-omfhint
+            fledge-filter-threshold
+            fledge-filter-fft
+            fledge-filter-rate
+            fledge-filter-expression
+            fledge-filter-scale-set
+            fledge-filter-rms
+            fledge-filter-delta
+            fledge-filter-metadata
+          )
+          for repo in "${repos[@]}"; do
+            echo "=== ${repo} ==="
+            run_id=$(gh run list --repo "RobRaesemann/${repo}" --workflow=package.yml --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+            if [ -z "${run_id}" ]; then
+              echo "::error::No successful package run found for ${repo}"
+              exit 1
+            fi
+            gh run download "${run_id}" --repo "RobRaesemann/${repo}" --dir "/tmp/artifacts/${repo}"
+          done
+          find /tmp/artifacts -name '*.deb' -exec cp {} "${DEBS_DIR}/" \;
+          echo "Collected debs:"
+          ls -la "${DEBS_DIR}"
+          count=$(find "${DEBS_DIR}" -name '*.deb' | wc -l)
+          if [ "${count}" -ne "${#repos[@]}" ]; then
+            echo "::error::Expected ${#repos[@]} .deb files, found ${count}"
+            exit 1
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lowercase image name
+        id: img
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/fledge-with-plugins" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: docker/fledge-with-plugins
+          push: true
+          build-args: |
+            BASE_IMAGE=ghcr.io/robraesemann/fledge-runtime:${{ inputs.fledge_runtime_tag || 'v3.1.0' }}
+          tags: |
+            ${{ steps.img.outputs.image }}:latest
+            ${{ steps.img.outputs.image }}:run-${{ github.run_id }}
