@@ -14,7 +14,11 @@
 # debs/ is populated by build-fledge-image.yml, which downloads the latest
 # successful .deb artifact from every onboarded plugin repo's indyiq/main
 # run before this build starts. It is empty (gitignored) otherwise.
-ARG BASE_IMAGE=ghcr.io/robraesemann/fledge-runtime:v3.1.0
+#
+# BASE_IMAGE is RobRaesemann/fledge's own custom Fledge-core image (built by
+# that repo's docker-publish.yml from its indyiq/main branch — not an
+# official fledge-iot image), published public so this build can pull it.
+ARG BASE_IMAGE=ghcr.io/robraesemann/fledge:indyiq-main
 FROM ${BASE_IMAGE}
 
 COPY debs/ /tmp/debs/

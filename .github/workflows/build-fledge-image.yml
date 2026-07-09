@@ -1,7 +1,8 @@
 ##
-## Builds and publishes the combined Fledge image: the fledge-runtime base
-## image plus every onboarded IndyIQ plugin, installed from the latest
-## successful .deb artifact on each plugin repo's own package workflow.
+## Builds and publishes the combined Fledge image: RobRaesemann/fledge's own
+## base image (built from its indyiq/main branch) plus every onboarded
+## IndyIQ plugin, installed from the latest successful .deb artifact on each
+## plugin repo's own package workflow.
 ##
 ## Downloading artifacts across 23 separate (mostly private) plugin repos
 ## needs more than the default GITHUB_TOKEN can grant (it's only ever scoped
@@ -13,10 +14,10 @@ name: build-fledge-image
 on:
   workflow_dispatch:
     inputs:
-      fledge_runtime_tag:
-        description: fledge-runtime base image tag to build onto
+      base_image:
+        description: Fledge base image to build onto (RobRaesemann/fledge's own image, not an official fledge-iot one)
         required: false
-        default: v3.1.0
+        default: ghcr.io/robraesemann/fledge:indyiq-main
 
 permissions:
   contents: read
@@ -96,7 +97,7 @@ jobs:
           context: docker/fledge-with-plugins
           push: true
           build-args: |
-            BASE_IMAGE=ghcr.io/robraesemann/fledge-runtime:${{ inputs.fledge_runtime_tag || 'v3.1.0' }}
+            BASE_IMAGE=${{ inputs.base_image || 'ghcr.io/robraesemann/fledge:indyiq-main' }}
           tags: |
             ${{ steps.img.outputs.image }}:latest
             ${{ steps.img.outputs.image }}:run-${{ github.run_id }}
