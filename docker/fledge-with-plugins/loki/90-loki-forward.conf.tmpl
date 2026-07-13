@@ -1,0 +1,36 @@
+# Forward all syslog to the edge-lab Alloy syslog receiver (-> Loki).
+#
+# This is a TEMPLATE. loki-forward-entrypoint.sh renders it to
+# /etc/rsyslog.d/90-loki-forward.conf at container start ONLY when
+# LOKI_SYSLOG_TARGET is set, substituting the __PLACEHOLDER__ tokens. When the
+# variable is unset the rendered file is never created, so the image behaves
+# exactly like the base image. See docs/loki-syslog-forwarding.md.
+#
+# Forwarding is ADDITIVE: the stock rules still write /var/log/syslog (and hence
+# `docker logs`); this only adds a second, remote destination.
+
+# The disk-assisted queue below spills to this directory during outages.
+# /var/log is already a writable persistent volume in this image.
+global(workDirectory="/var/log")
+
+# RFC5424 frame. The structured-data element carries fleet identity so Alloy's
+# loki.source.syslog can turn site/node into Loki labels. `@1` is a placeholder
+# private-enterprise-number; any stable value works (replace with a real PEN if
+# you ever register one).
+template(name="LokiForwardFmt" type="string"
+  string="<%PRI%>1 %TIMESTAMP:::date-rfc3339% %HOSTNAME% %APP-NAME% %PROCID% %MSGID% [fledge@1 site=\"__SITE__\" node=\"__NODE__\"] %msg%\n")
+
+action(type="omfwd"
+       target="__TARGET_HOST__"
+       port="__TARGET_PORT__"
+       protocol="tcp"
+       template="LokiForwardFmt"
+       # RFC6587 octet-counted framing — Alloy's syslog TCP parser expects it.
+       TCP_Framing="octet-counted"
+       # Disk-assisted queue: survive platform outages, never block Fledge.
+       queue.type="LinkedList"
+       queue.filename="loki_fwd"          # spill file prefix under workDirectory
+       queue.maxDiskSpace="200m"          # cap on buffered logs (oldest dropped past cap)
+       queue.saveOnShutdown="on"          # persist queue across restarts
+       action.resumeRetryCount="-1"       # retry forever, don't drop
+       action.resumeInterval="10")

@@ -35,3 +35,16 @@ RUN set -eux; \
     apt-get purge -y equivs; \
     rm -rf /tmp/equivs /tmp/debs /var/lib/apt/lists/*; \
     chown -R fledge:fledge /usr/local/fledge
+
+# --- Optional Loki logging ---
+# Forward syslog (Fledge core, plugins, PostgreSQL) to a central Loki via a
+# remote Alloy syslog receiver. Reuses the rsyslog already in the base image
+# (omfwd is built in — no new package). Inert unless LOKI_SYSLOG_TARGET is set
+# at runtime: the entrypoint wrapper renders the forward config only then and
+# execs the base entrypoint (/usr/local/fledge/fledge.sh), so with the var
+# unset behaviour is identical to the base image. See the Open-IIoT-GitOps
+# alloy-syslog receiver and fledge-iot/docs/loki-syslog-forwarding.md.
+COPY loki/90-loki-forward.conf.tmpl /etc/rsyslog.d/90-loki-forward.conf.tmpl
+COPY loki/loki-forward-entrypoint.sh /usr/local/fledge/loki-forward-entrypoint.sh
+RUN chmod +x /usr/local/fledge/loki-forward-entrypoint.sh
+ENTRYPOINT ["/usr/local/fledge/loki-forward-entrypoint.sh"]
