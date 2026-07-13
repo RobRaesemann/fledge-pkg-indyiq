@@ -27,10 +27,18 @@ action(type="omfwd"
        template="LokiForwardFmt"
        # RFC6587 octet-counted framing — Alloy's syslog TCP parser expects it.
        TCP_Framing="octet-counted"
-       # Disk-assisted queue: survive platform outages, never block Fledge.
+       # Fully-decoupled async queue. CRITICAL: a forwarding-target outage must
+       # NEVER back-pressure the main rsyslog queue, or local logging
+       # (/var/log/syslog, and hence `docker logs`/`kubectl logs`) stops too.
+       # An earlier version without timeoutEnqueue wedged all of rsyslog on the
+       # fledge fleet when the Alloy receiver briefly dropped connections.
        queue.type="LinkedList"
        queue.filename="loki_fwd"          # spill file prefix under workDirectory
-       queue.maxDiskSpace="200m"          # cap on buffered logs (oldest dropped past cap)
+       queue.size="50000"                 # bounded in-memory queue
+       queue.maxDiskSpace="200m"          # disk-assist cap (oldest dropped past cap)
+       queue.timeoutEnqueue="0"           # NON-BLOCKING: discard on full, never block main
+       queue.discardMark="45000"          # start shedding low-severity msgs before full
+       queue.discardSeverity="6"          # discard info/debug first under pressure
        queue.saveOnShutdown="on"          # persist queue across restarts
-       action.resumeRetryCount="-1"       # retry forever, don't drop
+       action.resumeRetryCount="-1"       # retry forever; queue drains on reconnect
        action.resumeInterval="10")
