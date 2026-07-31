@@ -4,7 +4,7 @@
 ## IndyIQ plugin, installed from the latest successful .deb artifact on each
 ## plugin repo's own package workflow.
 ##
-## Downloading artifacts across 23 separate (mostly private) plugin repos
+## Downloading artifacts across 24 separate (mostly private) plugin repos
 ## needs more than the default GITHUB_TOKEN can grant (it's only ever scoped
 ## to this repo) — requires a classic PAT with `repo` scope stored as the
 ## ARTIFACT_PAT secret on this repo.
@@ -40,6 +40,7 @@ jobs:
           repos=(
             fledge-south-ethernetip
             fledge-south-restclient
+            fledge-south-rdbms
             fledge-south-http
             fledge-south-s7-python
             fledge-south-s2opcua

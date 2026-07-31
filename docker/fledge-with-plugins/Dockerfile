@@ -21,6 +21,32 @@
 ARG BASE_IMAGE=ghcr.io/robraesemann/fledge:indyiq-main
 FROM ${BASE_IMAGE}
 
+# --- Microsoft ODBC Driver 18 for SQL Server (fledge-south-rdbms) -----------
+# The rdbms plugin's pyodbc adapter loads this driver by name at connection
+# time. It cannot be a Depends: of the plugin .deb — it lives in Microsoft's
+# own apt repository under a EULA, not the distro repos — and it cannot be
+# installed from the plugin's postinst either, because that runs while the
+# outer `apt-get install /tmp/debs/*.deb` below holds the dpkg frontend lock.
+# So it is installed here, as its own layer, before the plugin debs.
+# ACCEPT_EULA=Y accepts the Microsoft licence terms non-interactively:
+# https://learn.microsoft.com/sql/connect/odbc/linux-mac/installing-the-microsoft-odbc-driver-for-sql-server
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends curl gnupg ca-certificates apt-transport-https; \
+    . /etc/os-release; \
+    curl -fsSL https://packages.microsoft.com/keys/microsoft.asc \
+        | gpg --dearmor --yes -o /usr/share/keyrings/microsoft-prod.gpg; \
+    curl -fsSL "https://packages.microsoft.com/config/${ID}/${VERSION_ID}/prod.list" \
+        > /etc/apt/sources.list.d/mssql-release.list; \
+    grep -q 'signed-by=' /etc/apt/sources.list.d/mssql-release.list \
+        || sed -i 's|^deb \[|deb [signed-by=/usr/share/keyrings/microsoft-prod.gpg |' \
+            /etc/apt/sources.list.d/mssql-release.list; \
+    apt-get update; \
+    ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 unixodbc; \
+    rm -rf /var/lib/apt/lists/*; \
+    odbcinst -q -d
+
+# Kept below the driver layer so a new set of plugin debs doesn't invalidate it.
 COPY debs/ /tmp/debs/
 
 RUN set -eux; \
