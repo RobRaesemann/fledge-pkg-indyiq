@@ -38,6 +38,7 @@ jobs:
           set -euo pipefail
           mkdir -p "${DEBS_DIR}"
           repos=(
+            fledge-service-notification
             fledge-south-ethernetip
             fledge-south-restclient
             fledge-south-rdbms
@@ -46,6 +47,7 @@ jobs:
             fledge-south-s2opcua
             fledge-south-mqtt
             fledge-south-mqtt-sparkplug
+            fledge-notify-kafka
             fledge-filter-rename
             fledge-filter-scale
             fledge-filter-asset
@@ -62,6 +64,11 @@ jobs:
             fledge-filter-rms
             fledge-filter-delta
             fledge-filter-metadata
+            fledge-rule-average
+            fledge-rule-delta
+            fledge-rule-outofbound
+            fledge-rule-simple-expression
+            fledge-rule-watchdog
           )
           for repo in "${repos[@]}"; do
             echo "=== ${repo} ==="
