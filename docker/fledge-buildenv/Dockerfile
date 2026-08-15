@@ -21,6 +21,8 @@ ARG DEBIAN_FRONTEND=noninteractive
 ARG FLEDGE_REPO=https://github.com/fledge-iot/fledge.git
 ARG FLEDGE_BRANCH=v3.1.0
 ARG LIBPLCTAG_VERSION=2.6.15
+ARG NOTIFICATION_REPO=https://github.com/fledge-iot/fledge-service-notification.git
+ARG NOTIFICATION_BRANCH=v3.1.0
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -68,5 +70,17 @@ RUN set -eux; \
     cmake --build "${workdir}/libplctag/build" --target install; \
     ldconfig; \
     rm -rf "${workdir}"
+
+# Notification service headers. Every fledge-rule-* plugin includes the
+# notification server's own headers (builtin_rule.h and friends) and its
+# CMakeLists hard-fails unless NOTIFICATION_SERVICE_INCLUDE_DIRS points at
+# them. Only the headers are needed — nothing here is compiled. Pinned to the
+# same release as FLEDGE_BRANCH so the rule plugins are always built against
+# the same service ABI as the fledge-service-notification .deb shipped in the
+# combined image. Kept last so it doesn't invalidate the expensive layers.
+ENV NOTIFICATION_SERVICE_ROOT=/opt/fledge-service-notification
+RUN git clone --depth 1 --branch "${NOTIFICATION_BRANCH}" \
+        "${NOTIFICATION_REPO}" "${NOTIFICATION_SERVICE_ROOT}"
+ENV NOTIFICATION_SERVICE_INCLUDE_DIRS=${NOTIFICATION_SERVICE_ROOT}/C/services/notification/include
 
 WORKDIR /work

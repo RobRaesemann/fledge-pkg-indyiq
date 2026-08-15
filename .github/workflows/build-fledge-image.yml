@@ -1,10 +1,10 @@
 ##
-## Builds and publishes the combined Fledge image: RobRaesemann/fledge's own
-## base image (built from its indyiq/main branch) plus every onboarded
-## IndyIQ plugin, installed from the latest successful .deb artifact on each
-## plugin repo's own package workflow.
+## Builds and publishes the combined Fledge image: RobRaesemann's own base
+## image (built from its indyiq/main branch) plus every onboarded IndyIQ
+## plugin and the notification service, installed from the latest successful
+## .deb artifact on each repo's own package workflow.
 ##
-## Downloading artifacts across 24 separate (mostly private) plugin repos
+## Downloading artifacts across 36 separate (mostly private) plugin repos
 ## needs more than the default GITHUB_TOKEN can grant (it's only ever scoped
 ## to this repo) — requires a classic PAT with `repo` scope stored as the
 ## ARTIFACT_PAT secret on this repo.

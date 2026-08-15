@@ -121,6 +121,8 @@ work and is called once per plugin.
    `Package` as shell to get `plugin_name`, `plugin_type`,
    `plugin_install_dirname`, `plugin_package_name`, and optionally
    `plugin_lang`, `requirements`, `additional_libs`, `plugin_build_target`.
+   A repo that declares `service_name`/`exec_name` instead of `plugin_name`
+   is packaged as a **service** — see "Services" below.
 
 3. **Resolve version.** Prefers `VERSION.<type>.<name>` (fledge-pkg
    convention — either a bare version string, or a `<name>_version=X` line
@@ -167,6 +169,37 @@ Runtime install/uninstall behavior comes from the templated `postinst` /
 so bundled shared libs are discoverable, and executes an optional
 `extras_install.sh` shipped alongside the plugin (pip installs, native lib
 setup, etc). `postrm` removes the install dir on `remove`/`purge`.
+
+### Services
+
+`fledge-service-notification` is not a plugin — it's a daemon — so its repo
+declares `service_name` and `exec_name` in `Package` instead of
+`plugin_name`/`plugin_type`, and `make_deb` switches into service mode when
+it sees that. The differences from a C++ plugin:
+
+- Both versions come from a single `VERSION` file holding a
+  `<service>_version=X` line and a `fledge_version>=Y` line — there is no
+  `VERSION.<type>.<name>` and no `fledge.version`.
+- The default package name is `fledge-service-<service_name>`.
+- The build is a plain `cmake ..` (the service's own `CMakeLists.txt` reads
+  the `FLEDGE_ROOT` env var that `fledge-buildenv` already sets), and the
+  single executable it produces at
+  `build/C/services/<service>/<exec_name>` is installed to
+  `/usr/local/fledge/services/<exec_name>`.
+- Because that `services/` directory is shared with the Fledge core's own
+  binaries, `postinst`/`postrm` are pointed at just the one executable — a
+  package must never chown or `rm -rf` the whole directory.
+- The notification service additionally ships the four (empty) directories
+  its rule and delivery plugins install into, so those plugins always have
+  somewhere to land: `plugins/notification{Delivery,Rule}` and
+  `python/fledge/plugins/notification{Delivery,Rule}`.
+
+Notification **plugins** are ordinary C++ plugins with one wrinkle: Fledge
+infers a notification plugin's kind by matching `notificationDelivery` /
+`notificationRule` in its install path, so their `Package` sets
+`plugin_type` to that on-disk directory name (not `notify`/`rule`) and uses
+`plugin_package_name` to keep the conventional `fledge-notify-*` /
+`fledge-rule-*` Debian package name.
 
 ## Build environment images
 

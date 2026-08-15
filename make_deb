@@ -101,20 +101,42 @@ build_one() {
 
     # Package metadata: plugin_name, plugin_type, plugin_install_dirname,
     # plugin_package_name, plugin_lang, requirements, additional_libs, ...
+    # A service repo (e.g. fledge-service-notification) instead declares
+    # service_name and exec_name — it ships a daemon under services/ rather
+    # than a plugin library under plugins/.
     # shellcheck disable=SC1091
     . "${GIT_ROOT}/Package"
+
+    local kind=plugin
+    if [ -z "${plugin_name:-}" ] && [ -n "${service_name:-}" ]; then
+        kind=service
+    fi
+
+    # comp_name/comp_type name the thing being packaged in either mode, so the
+    # version lookup and the control/postinst templating below stay common.
+    local comp_name comp_type verfile
+    if [ "${kind}" = "service" ]; then
+        comp_name="${service_name}"
+        comp_type="service"
+        # A service repo keeps both its own version and the Fledge dependency
+        # in one VERSION file (<name>_version=X, fledge_version>=Y).
+        verfile="${GIT_ROOT}/VERSION"
+    else
+        comp_name="${plugin_name}"
+        comp_type="${plugin_type}"
+        verfile="${GIT_ROOT}/VERSION.${plugin_type}.${plugin_name}"
+    fi
 
     # Version sources, in order of preference:
     #   1. VERSION.<type>.<name> — bare "1.0.0", OR fledge-pkg style with a
     #      "<name>_version=1.0.0" line (and optionally "fledge_version>=X").
     #   2. VERSION — bare version string.
     # The Fledge dependency comes from fledge.version, else from a
-    # "fledge_version" line in VERSION.<type>.<name>.
-    local verfile="${GIT_ROOT}/VERSION.${plugin_type}.${plugin_name}"
+    # "fledge_version" line in the version file.
     local version=""
     if [ -f "${verfile}" ]; then
-        if grep -q "${plugin_name}_version" "${verfile}"; then
-            version=$(tr -d ' ' < "${verfile}" | grep "${plugin_name}_version" | head -1 | cut -d= -f2)
+        if grep -q "${comp_name}_version" "${verfile}"; then
+            version=$(tr -d ' ' < "${verfile}" | grep "${comp_name}_version" | head -1 | cut -d= -f2)
         else
             version=$(head -1 "${verfile}")
         fi
@@ -122,7 +144,7 @@ build_one() {
         version=$(head -1 "${GIT_ROOT}/VERSION")
     fi
     if [ -z "${version}" ]; then
-        echo "Cannot determine plugin version (no VERSION or VERSION.${plugin_type}.${plugin_name}) in ${GIT_ROOT}" >&2
+        echo "Cannot determine ${comp_type} version (no VERSION or ${verfile##*/}) in ${GIT_ROOT}" >&2
         exit 1
     fi
 
@@ -140,6 +162,8 @@ build_one() {
     local pkg_name
     if [ "${plugin_package_name}" ]; then
         pkg_name=${plugin_package_name}
+    elif [ "${kind}" = "service" ]; then
+        pkg_name="fledge-service-${service_name}"
     else
         pkg_name="fledge-${plugin_type}-${plugin_name}"
     fi
@@ -168,7 +192,7 @@ build_one() {
     local STAGE="${BUILD_ROOT}/${package_name}"
 
     echo "----------------------------------------------------------------"
-    echo "Plugin            : ${plugin_type}/${plugin_name} (${lang})"
+    echo "Packaging         : ${comp_type}/${comp_name} (${lang})"
     echo "Source tree       : ${GIT_ROOT}"
     echo "Package name      : ${package_name}"
     echo "Fledge dependency : ${fledge_version}"
@@ -179,11 +203,20 @@ build_one() {
     mkdir -p "${STAGE}"
 
     # Install path relative to /usr/local/fledge, differs by language.
-    local installs
-    if [ "${lang}" = "python" ]; then
+    # own_dir is what postinst chowns and postrm removes: for a plugin that is
+    # the whole install dir, but a service drops a single executable into the
+    # shared services/ directory alongside the Fledge core's own binaries, so
+    # it must only ever claim that one file.
+    local installs own_dir
+    if [ "${kind}" = "service" ]; then
+        installs="services"
+        own_dir="services/${exec_name}"
+    elif [ "${lang}" = "python" ]; then
         installs="python/fledge/plugins/${plugin_type}/${plugin_install_dirname}"
+        own_dir="${installs}"
     else
         installs="plugins/${plugin_type}/${plugin_install_dirname}"
+        own_dir="${installs}"
     fi
 
     # ---- DEBIAN control dir from the central templates --------------------
@@ -202,9 +235,9 @@ build_one() {
     sed -i "s/fledge$/fledge (${fledge_version})/" "${deb_path}/control"
     sed -i "s|__DESCRIPTION__|${desc}|g" "${deb_path}/control"
 
-    sed -i "s|__INSTALL_DIR__|${installs}|g" "${deb_path}/postinst"
-    sed -i "s/__PLUGIN_NAME__/${plugin_name}/g" "${deb_path}/postinst"
-    sed -i "s/__PLUGIN_TYPE__/${plugin_type}/g" "${deb_path}/postinst"
+    sed -i "s|__INSTALL_DIR__|${own_dir}|g" "${deb_path}/postinst"
+    sed -i "s/__PLUGIN_NAME__/${comp_name}/g" "${deb_path}/postinst"
+    sed -i "s/__PLUGIN_TYPE__/${comp_type}/g" "${deb_path}/postinst"
     if [ -f "${GIT_ROOT}/install_notes.txt" ]; then
         local notes
         notes=$(cat "${GIT_ROOT}/install_notes.txt")
@@ -212,15 +245,48 @@ build_one() {
     else
         sed -i "s/__PLUGIN_NOTES__//g" "${deb_path}/postinst"
     fi
-    sed -i "s|__INSTALL_DIR__|${installs}|g" "${deb_path}/postrm"
+    sed -i "s|__INSTALL_DIR__|${own_dir}|g" "${deb_path}/postrm"
     chmod 755 "${deb_path}/postinst" "${deb_path}/postrm"
     echo "Done."
 
     # ---- Lay out the payload ---------------------------------------------
-    mkdir -p "${STAGE}/usr/local/fledge/${installs}"
-    echo "${pkg_name}" > "${STAGE}/usr/local/fledge/${installs}/.Package"
+    if [ "${kind}" != "service" ]; then
+        mkdir -p "${STAGE}/usr/local/fledge/${installs}"
+        echo "${pkg_name}" > "${STAGE}/usr/local/fledge/${installs}/.Package"
+    fi
 
-    if [ "${lang}" = "python" ]; then
+    if [ "${kind}" = "service" ]; then
+        # Service: cmake-build the daemon and ship its single executable into
+        # services/. FLEDGE_ROOT (set in fledge-buildenv) is where the
+        # CMakeLists picks up Fledge's headers and prebuilt libraries.
+        (
+            cd "${GIT_ROOT}"
+            if [ "${SKIP_REQUIREMENTS}" = "0" ] && [ -f requirements.sh ]; then
+                ./requirements.sh
+            fi
+            rm -rf build
+            mkdir -p build
+            cd build
+            cmake ..
+            cmake --build . -- -j"$(nproc)"
+        )
+        local built="${GIT_ROOT}/build/C/services/${service_name}/${exec_name}"
+        if [ ! -f "${built}" ]; then
+            echo "Service build produced no executable at ${built}" >&2
+            exit 1
+        fi
+        mkdir -p "${STAGE}/usr/local/fledge/services"
+        cp "${built}" "${STAGE}/usr/local/fledge/services/${exec_name}"
+        # The notification service loads its rule and delivery plugins from
+        # these four directories. They belong to the service package so that
+        # the plugins depending on it always have somewhere to install to.
+        if [ "${service_name}" = "notification" ]; then
+            mkdir -p "${STAGE}/usr/local/fledge/plugins/notificationDelivery" \
+                     "${STAGE}/usr/local/fledge/plugins/notificationRule" \
+                     "${STAGE}/usr/local/fledge/python/fledge/plugins/notificationDelivery" \
+                     "${STAGE}/usr/local/fledge/python/fledge/plugins/notificationRule"
+        fi
+    elif [ "${lang}" = "python" ]; then
         # Python plugin: copy the plugin package tree verbatim.
         local py_src="${GIT_ROOT}/python/fledge/plugins/${plugin_type}/${plugin_install_dirname}"
         if [ ! -d "${py_src}" ]; then
