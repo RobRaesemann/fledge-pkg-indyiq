@@ -47,7 +47,12 @@ jobs:
             fledge-south-s2opcua
             fledge-south-mqtt
             fledge-south-mqtt-sparkplug
+            fledge-notify-asset
+            fledge-notify-customasset
             fledge-notify-kafka
+            fledge-notify-mqtt
+            fledge-notify-python35
+            fledge-notify-slack
             fledge-filter-rename
             fledge-filter-scale
             fledge-filter-asset
