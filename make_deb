@@ -301,11 +301,29 @@ build_one() {
         find "${STAGE}/usr/local/fledge/${installs}" -name '*.py' -print0 \
             | xargs -0 -r sed -i "s/^__version__.*/__version__ = \"${version}\"/" || true
         # Runtime pip deps (if any): bundle a requirements.txt into the payload
-        # so an extras_install.sh (invoked from postinst) can pip-install it.
-        # Accept either a top-level requirements.txt or the fledge convention
-        # python/requirements-<name>.txt.
-        for req in "${GIT_ROOT}/requirements.txt" "${GIT_ROOT}/python/requirements-${plugin_name}.txt"; do
+        # so the postinst can pip-install it.
+        #
+        # The fledge convention python/requirements-<name>.txt wins over a
+        # top-level requirements.txt: repos commonly keep the root file as a
+        # dev convenience that just pulls in the real one, and only the
+        # per-plugin file is meant to describe the runtime.
+        #
+        # Whichever is chosen has to stand alone. The postinst runs
+        # `pip install -r <install-dir>/requirements.txt`, and pip resolves a
+        # -r include relative to the file containing it, so an include points at
+        # a path that exists only in the source tree. The package then unpacks
+        # fine and fails when dpkg configures it — surfacing in whatever
+        # installs the .deb (the fledge-with-plugins image build) instead of
+        # here. Fail at package time instead.
+        for req in "${GIT_ROOT}/python/requirements-${plugin_name}.txt" "${GIT_ROOT}/requirements.txt"; do
             if [ -f "${req}" ]; then
+                if grep -Eq '^[[:space:]]*(-r|--requirement)([[:space:]]|=)' "${req}"; then
+                    echo "${req} pulls in another requirements file with -r." >&2
+                    echo "That include cannot resolve once installed — inline the" >&2
+                    echo "dependencies, or put the runtime set in" >&2
+                    echo "python/requirements-${plugin_name}.txt." >&2
+                    exit 1
+                fi
                 cp "${req}" "${STAGE}/usr/local/fledge/${installs}/requirements.txt"
                 break
             fi
