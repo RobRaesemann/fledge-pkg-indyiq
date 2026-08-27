@@ -100,7 +100,8 @@ Optionally, instead of running steps directly on the runner VM, run them
 it. This is how C++ plugins get a consistent toolchain.
 
 *Here:* `build-plugin.yml` conditionally runs its job inside
-`ghcr.io/robraesemann/fledge-buildenv:latest`.
+`ghcr.io/robraesemann/fledge-buildenv` (prefer a digest; default tag is
+`:sha-338c653`, not `:latest`).
 
 ### Step
 One command or one action inside a job. Steps share a filesystem and run in
@@ -258,7 +259,7 @@ branch too.
 | `branch` | `main` | Ref of the plugin repo to package |
 | `org` | `RobRaesemann` | GitHub owner hosting the plugin repos |
 | `pkg_ref` | `main` | Ref of **this** repo to take `make_deb` from |
-| `image` | `ghcr.io/robraesemann/fledge-buildenv:latest` | Build environment image |
+| `image` | `ghcr.io/robraesemann/fledge-buildenv:sha-338c653` (prefer `@sha256:…`) | Build environment image |
 | `use_buildenv` | `true` | Run inside that image (needed for C++) |
 | `skip_requirements` | `false` | Pass `-s` to `make_deb`, skipping the plugin's `requirements.sh` |
 
@@ -414,7 +415,7 @@ whether that PAT expired.
 
 **Step 2 — build the image** from
 [`docker/fledge-with-plugins/Dockerfile`](docker/fledge-with-plugins/Dockerfile),
-based on `ghcr.io/robraesemann/fledge:indyiq-main` (published by the
+based on `ghcr.io/robraesemann/fledge:sha-338c653` (published by the
 `RobRaesemann/fledge` fork's own `docker-publish.yml`, which fires on pushes to
 its `indyiq/main` branch).
 
@@ -502,7 +503,8 @@ plugin.cpp, plctag.cpp, include/, tests/
    `repo: fledge-south-ethernetip`, `branch: v2.0.0`, `skip_requirements: true`.
    `use_buildenv` is left at its `true` default.
 3. Actions allocates an `ubuntu-latest` runner, pulls
-   `ghcr.io/robraesemann/fledge-buildenv:latest`, and runs every step inside it.
+   `ghcr.io/robraesemann/fledge-buildenv:sha-338c653` (or a digest if the caller
+   pinned `image`), and runs every step inside it.
    `$FLEDGE_ROOT=/opt/fledge` with Fledge's C libs already compiled; libplctag
    already in `/usr/local`.
 4. `actions/checkout@v5` clones `fledge-pkg-indyiq@main` into the workspace.
@@ -620,7 +622,7 @@ gh workflow run build-fledge-image.yml
 
 # C++ plugin, in the real build environment
 docker run --rm -v "$PWD:/work" -v /home/rob/github/fledge-iot:/src \
-  ghcr.io/robraesemann/fledge-buildenv:latest \
+  ghcr.io/robraesemann/fledge-buildenv:sha-338c653 \
   ./make_deb -s -l /src/fledge-south-ethernetip
 ```
 

@@ -496,7 +496,7 @@ stages:
           tags: [ latest, "run-${VELA_BUILD_NUMBER}" ]
           context: docker/fledge-with-plugins
           build_args:
-            - BASE_IMAGE=ghcr.io/robraesemann/fledge:indyiq-main
+            - BASE_IMAGE=ghcr.io/robraesemann/fledge:sha-338c653
 ```
 
 Notes on the translation:

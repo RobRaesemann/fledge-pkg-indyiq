@@ -210,26 +210,26 @@ so any repo can pull them with no credentials.
 ### `fledge-buildenv` — compiles C++ plugins
 
 Built by `.github/workflows/build-buildenv.yml`, triggered on a change to
-`docker/fledge-buildenv/**`, weekly (Mondays 06:00 UTC, to pick up base-image
-security updates), or manually (`workflow_dispatch`, with a `fledge_branch`
-input, default `v3.1.0`).
+`docker/fledge-buildenv/**`, weekly (Mondays 06:00 UTC, to pick up archive
+security updates via `apt-get upgrade`), or manually (`workflow_dispatch`,
+optional `fledge_commit` SHA).
 
-`docker/fledge-buildenv/Dockerfile` (`FROM ubuntu:24.04`) provides:
+`docker/fledge-buildenv/Dockerfile` (`FROM ubuntu:24.04@sha256:…`) provides:
 - The C++ toolchain (`build-essential`, `cmake`, `dpkg-dev`, etc.)
-- Fledge source at `$FLEDGE_ROOT` (`/opt/fledge`), with Fledge's own C
-  libraries **pre-built** (`cmake_build/C/lib/*.so` —
-  `common-lib`, `services-common-lib`, `filters-common-lib`) by running
-  Fledge's own `requirements.sh` and `make c_build`. Plugins that link a
-  Fledge shared library via `FindFledge.cmake` (e.g. `fledge-south-s2opcua`
-  needing `common-lib`) find it already built — this full Fledge C build is
-  a one-time cost paid only when the image itself is rebuilt, never per
-  plugin build.
-- `libplctag` prebuilt into `/usr/local`, so plugins that vendor it (e.g.
-  ethernetip) can pass `-s`/`skip_requirements: true` to skip rebuilding it
-  every CI run.
+- Fledge source at `$FLEDGE_ROOT` (`/opt/fledge`), pinned to
+  `RobRaesemann/fledge@338c653a9` (image tag `sha-338c653`),
+  with Fledge's C libraries **pre-built** (`cmake_build/C/lib/*.so` —
+  `common-lib`, `services-common-lib`, `filters-common-lib`) by `make
+  c_build`. C build deps are an explicit apt list (not upstream
+  `requirements.sh`). SQLite is the official sqlite.org amalgamation,
+  compiled with Fledge's attach/compound-select limits.
+- `libplctag` **library and headers** in `/usr/local` (not its protocol
+  tools), so plugins that vendor it (e.g. ethernetip) can pass
+  `-s`/`skip_requirements: true`.
 
-Pushed to `ghcr.io/<owner>/fledge-buildenv:latest` and `:<fledge_branch>`,
-with registry-backed build caching.
+Pushed to `ghcr.io/<owner>/fledge-buildenv:latest`, `:sha-338c653`, and
+`:sha-<gitsha>`. Plugin CI should pin the digest printed in the job
+summary, not `:latest`.
 
 ### `fledge-runtime` — base deployable Fledge image
 

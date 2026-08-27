@@ -18,7 +18,8 @@
 # BASE_IMAGE is RobRaesemann/fledge's own custom Fledge-core image (built by
 # that repo's docker-publish.yml from its indyiq/main branch — not an
 # official fledge-iot image), published public so this build can pull it.
-ARG BASE_IMAGE=ghcr.io/robraesemann/fledge:indyiq-main
+# Pinned to sha-338c653 (SQLite 3.53.4 from sqlite.org + python CVE pins).
+ARG BASE_IMAGE=ghcr.io/robraesemann/fledge:sha-338c653
 FROM ${BASE_IMAGE}
 
 # --- Microsoft ODBC Driver 18 for SQL Server (fledge-south-rdbms) -----------
@@ -51,15 +52,16 @@ COPY debs/ /tmp/debs/
 
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends equivs; \
+    apt-get install -y --no-install-recommends equivs python3-pip; \
     mkdir -p /tmp/equivs && cd /tmp/equivs; \
     fledge_version="$(sed -n 's/^fledge_version=//p' /etc/fledge-build)"; \
     printf 'Package: fledge\nVersion: %s\nArchitecture: all\nMaintainer: IndyIQ\nDescription: Placeholder marking the source-built Fledge core as installed, for dpkg dependency tracking only.\n' "${fledge_version}" > fledge-equivs.control; \
     equivs-build fledge-equivs.control; \
     dpkg -i ./*.deb; \
     apt-get install -y /tmp/debs/*.deb; \
-    apt-get purge -y equivs; \
-    rm -rf /tmp/equivs /tmp/debs /var/lib/apt/lists/*; \
+    apt-get purge -y equivs python3-pip; \
+    apt-get autoremove -y --purge; \
+    rm -rf /tmp/equivs /tmp/debs /root/.cache /var/lib/apt/lists/*; \
     chown -R fledge:fledge /usr/local/fledge
 
 # --- Optional Loki logging ---

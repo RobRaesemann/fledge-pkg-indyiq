@@ -68,6 +68,8 @@ docker build -t fledge-buildenv docker/fledge-buildenv
 docker run --rm -v "$PWD:/work" fledge-buildenv ./make_deb -s -l /path/to/plugin
 ```
 
+Plugin CI should pull the published image **by digest** (`ghcr.io/robraesemann/fledge-buildenv@sha256:…` from the `build-buildenv` job summary), not `:latest`.
+
 ## CI
 
 `.github/workflows/build-plugin.yml` is a reusable workflow. Each plugin repo

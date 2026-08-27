@@ -18,4 +18,6 @@ jobs:
     with:
       repo: fledge-south-ethernetip
       branch: ${{ github.ref_name }}
+      # Pin to the digest printed by fledge-pkg-indyiq's build-buildenv job.
+      # image: ghcr.io/robraesemann/fledge-buildenv@sha256:<digest>
       # use_buildenv: false   # uncomment for pure-Python plugins

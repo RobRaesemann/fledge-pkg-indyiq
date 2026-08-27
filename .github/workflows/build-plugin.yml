@@ -17,6 +17,9 @@
 ## entirely for pure-Python plugins via use_buildenv:false) and build inside
 ## it. This avoids every plugin repo needing GHCR write access.
 ##
+## Pin `image` to the digest printed by build-buildenv (GHCR job summary),
+## not :latest. :sha-338c653 matches the Fledge core image of the same tag.
+##
 name: build-plugin
 
 on:
@@ -42,9 +45,9 @@ on:
         default: main
         type: string
       image:
-        description: fledge-buildenv image ref (must be lowercase, publicly readable)
+        description: fledge-buildenv image ref. Prefer an immutable digest (ghcr.io/robraesemann/fledge-buildenv@sha256:...). :latest is mutable and should not be used.
         required: false
-        default: ghcr.io/robraesemann/fledge-buildenv:latest
+        default: ghcr.io/robraesemann/fledge-buildenv:sha-338c653
         type: string
       use_buildenv:
         description: Build inside the shared fledge-buildenv image (needed for C++). Pure-Python plugins can set this false to build on the bare runner instead.
@@ -67,6 +70,11 @@ jobs:
       contents: read
     container: ${{ inputs.use_buildenv && inputs.image || '' }}
     steps:
+      - name: Warn if buildenv tag is mutable
+        if: ${{ inputs.use_buildenv && (contains(inputs.image, ':latest') || !contains(inputs.image, '@sha256:')) }}
+        run: |
+          echo "::warning::fledge-buildenv image '${{ inputs.image }}' is not pinned to a digest. Pin ghcr.io/robraesemann/fledge-buildenv@sha256:<digest> from the build-buildenv job summary."
+
       - name: Checkout packaging repo
         uses: actions/checkout@v5
         with:

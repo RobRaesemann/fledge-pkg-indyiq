@@ -1,7 +1,8 @@
 ##
 ## Builds and publishes the fledge-buildenv image to GHCR.
-## Runs when the Dockerfile changes, weekly (to pick up base-image security
-## updates), or on demand. Plugin builds pull this image.
+## Runs when the Dockerfile changes, weekly (to pick up archive security
+## updates via apt-get upgrade), or on demand. Plugin builds should pull
+## the digest this workflow prints, not :latest.
 ##
 name: build-buildenv
 
@@ -14,10 +15,10 @@ on:
     - cron: '0 6 * * 1'   # Mondays 06:00 UTC
   workflow_dispatch:
     inputs:
-      fledge_branch:
-        description: Fledge branch/tag for headers
+      fledge_commit:
+        description: Full 40-char Fledge commit SHA (empty = Dockerfile pin)
         required: false
-        default: v3.1.0
+        default: ''
 
 permissions:
   contents: read
@@ -26,6 +27,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+      image: ${{ steps.img.outputs.image }}
     steps:
       - uses: actions/checkout@v5
 
@@ -42,13 +46,86 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: docker/build-push-action@v6
+        id: push
         with:
           context: docker/fledge-buildenv
           push: true
           build-args: |
-            FLEDGE_BRANCH=${{ github.event.inputs.fledge_branch || 'v3.1.0' }}
+            ${{ github.event.inputs.fledge_commit && format('FLEDGE_COMMIT={0}', github.event.inputs.fledge_commit) || '' }}
+          secrets: |
+            gh_token=${{ secrets.ARTIFACT_PAT }}
           tags: |
             ${{ steps.img.outputs.image }}:latest
-            ${{ steps.img.outputs.image }}:${{ github.event.inputs.fledge_branch || 'v3.1.0' }}
+            ${{ steps.img.outputs.image }}:sha-338c653
+            ${{ steps.img.outputs.image }}:sha-${{ github.sha }}
           cache-from: type=registry,ref=${{ steps.img.outputs.image }}:buildcache
           cache-to: type=registry,ref=${{ steps.img.outputs.image }}:buildcache,mode=max
+
+      - name: Record image digest
+        run: |
+          {
+            echo "## fledge-buildenv digest"
+            echo ""
+            echo "Pin plugin CI with:"
+            echo ""
+            echo '```'
+            echo "${{ steps.img.outputs.image }}@${{ steps.push.outputs.digest }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Published ${{ steps.img.outputs.image }}@${{ steps.push.outputs.digest }}"
+
+  # Same gate + inventory as RobRaesemann/fledge docker-publish.yml.
+  scan:
+    name: Scan image (HIGH/CRITICAL)
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Scan image (HIGH/CRITICAL gate)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          vuln-type: os,library
+          scanners: vuln
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Scan image (full inventory)
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
+          format: table
+          output: trivy-full-inventory.txt
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "0"
+          vuln-type: os,library
+          scanners: vuln
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Trivy full inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-full-inventory
+          path: trivy-full-inventory.txt
+          if-no-files-found: error
