@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       digest: ${{ steps.push.outputs.digest }}
-      image: ${{ steps.img.outputs.image }}
+      image: ${{ steps.published.outputs.image }}
     steps:
       - uses: actions/checkout@v5
 
@@ -73,18 +73,21 @@ jobs:
           cache-to: type=registry,ref=${{ steps.img.outputs.image }}:buildcache,mode=max
 
       - name: Record image digest
+        id: published
         run: |
+          image="${{ steps.img.outputs.image }}"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
           {
             echo "## fledge-buildenv digest"
             echo ""
             echo "Pin plugin CI with:"
             echo ""
             echo '```'
-            echo "${{ steps.img.outputs.image }}@${{ steps.push.outputs.digest }}"
+            echo "${image}@${{ steps.push.outputs.digest }}"
             echo "${{ steps.img.outputs.dockerhub }}:latest"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "Published ${{ steps.img.outputs.image }}@${{ steps.push.outputs.digest }}"
+          echo "Published ${image}@${{ steps.push.outputs.digest }}"
           echo "Published ${{ steps.img.outputs.dockerhub }}:latest"
 
   # Same gate + inventory as RobRaesemann/fledge docker-publish.yml.
