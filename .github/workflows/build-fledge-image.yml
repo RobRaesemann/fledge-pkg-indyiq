@@ -17,7 +17,7 @@ on:
       base_image:
         description: Fledge base image to build onto (RobRaesemann/fledge's own image, not an official fledge-iot one)
         required: false
-        default: ghcr.io/robraesemann/fledge:sha-338c653
+        default: ghcr.io/robraesemann/fledge@sha256:fb0f81588f5ee4597ad6d8993917bdc662c1bf87e16f03d9f032824b767f4fdc
 
 permissions:
   contents: read
@@ -113,7 +113,7 @@ jobs:
           context: docker/fledge-with-plugins
           push: true
           build-args: |
-            BASE_IMAGE=${{ inputs.base_image || 'ghcr.io/robraesemann/fledge:sha-338c653' }}
+            BASE_IMAGE=${{ inputs.base_image || 'ghcr.io/robraesemann/fledge@sha256:fb0f81588f5ee4597ad6d8993917bdc662c1bf87e16f03d9f032824b767f4fdc' }}
           tags: |
             ${{ steps.img.outputs.image }}:latest
             ${{ steps.img.outputs.image }}:run-${{ github.run_id }}

@@ -18,8 +18,9 @@
 # BASE_IMAGE is RobRaesemann/fledge's own custom Fledge-core image (built by
 # that repo's docker-publish.yml from its indyiq/main branch — not an
 # official fledge-iot image), published public so this build can pull it.
-# Pinned to sha-338c653 (SQLite 3.53.4 from sqlite.org + python CVE pins).
-ARG BASE_IMAGE=ghcr.io/robraesemann/fledge:sha-338c653
+# Latest published IndyIQ core (indyiq/main @ 338c653 — SQLite 3.53.4,
+# aiohttp 3.14.3 / PyJWT pins). Digest so a retagged :indyiq-main cannot drift.
+ARG BASE_IMAGE=ghcr.io/robraesemann/fledge@sha256:fb0f81588f5ee4597ad6d8993917bdc662c1bf87e16f03d9f032824b767f4fdc
 FROM ${BASE_IMAGE}
 
 # --- Microsoft ODBC Driver 18 for SQL Server (fledge-south-rdbms) -----------
@@ -53,6 +54,7 @@ COPY debs/ /tmp/debs/
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends equivs python3-pip; \
+    python3 -m pip install --break-system-packages --no-cache-dir 'async-timeout==5.0.1'; \
     mkdir -p /tmp/equivs && cd /tmp/equivs; \
     fledge_version="$(sed -n 's/^fledge_version=//p' /etc/fledge-build)"; \
     printf 'Package: fledge\nVersion: %s\nArchitecture: all\nMaintainer: IndyIQ\nDescription: Placeholder marking the source-built Fledge core as installed, for dpkg dependency tracking only.\n' "${fledge_version}" > fledge-equivs.control; \
