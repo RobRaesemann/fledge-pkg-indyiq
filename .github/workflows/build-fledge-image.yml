@@ -30,6 +30,9 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+      image: ${{ steps.img.outputs.image }}
     steps:
       - uses: actions/checkout@v5
 
@@ -109,6 +112,7 @@ jobs:
         run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/fledge-with-plugins" >> "$GITHUB_OUTPUT"
 
       - uses: docker/build-push-action@v6
+        id: push
         with:
           context: docker/fledge-with-plugins
           push: true
@@ -117,3 +121,70 @@ jobs:
           tags: |
             ${{ steps.img.outputs.image }}:latest
             ${{ steps.img.outputs.image }}:run-${{ github.run_id }}
+
+      - name: Record image digest
+        run: |
+          {
+            echo "## fledge-with-plugins digest"
+            echo ""
+            echo '```'
+            echo "${{ steps.img.outputs.image }}@${{ steps.push.outputs.digest }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Published ${{ steps.img.outputs.image }}@${{ steps.push.outputs.digest }}"
+
+  # Same gate + inventory as build-buildenv.yml / RobRaesemann/fledge docker-publish.yml.
+  scan:
+    name: Scan image (HIGH/CRITICAL)
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Scan image (HIGH/CRITICAL gate)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          vuln-type: os,library
+          scanners: vuln
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Scan image (full inventory)
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
+          format: table
+          output: trivy-full-inventory.txt
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: "0"
+          vuln-type: os,library
+          scanners: vuln
+        env:
+          TRIVY_USERNAME: ${{ github.actor }}
+          TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload Trivy full inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-full-inventory
+          path: trivy-full-inventory.txt
+          if-no-files-found: error
