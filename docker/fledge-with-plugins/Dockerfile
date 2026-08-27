@@ -18,7 +18,7 @@
 # BASE_IMAGE is RobRaesemann/fledge's own custom Fledge-core image (built by
 # that repo's docker-publish.yml from its indyiq/main branch — not an
 # official fledge-iot image), published public so this build can pull it.
-ARG BASE_IMAGE=ghcr.io/robraesemann/fledge:indyiq-main
+ARG BASE_IMAGE=ghcr.io/robraesemann/fledge:sha-338c653
 FROM ${BASE_IMAGE}
 
 # --- Microsoft ODBC Driver 18 for SQL Server (fledge-south-rdbms) -----------
