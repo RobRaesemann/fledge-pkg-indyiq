@@ -1,5 +1,6 @@
 ##
-## Builds and publishes the combined Fledge image: RobRaesemann's own base
+## Builds and publishes the combined Fledge image to GHCR and Docker Hub:
+## RobRaesemann's own base
 ## image (built from its indyiq/main branch) plus every onboarded IndyIQ
 ## plugin and the notification service, installed from the latest successful
 ## .deb artifact on each repo's own package workflow.
@@ -107,9 +108,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Lowercase image name
+      - name: Lowercase image names
         id: img
-        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/fledge-with-plugins" >> "$GITHUB_OUTPUT"
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "image=ghcr.io/${owner}/fledge-with-plugins" >> "$GITHUB_OUTPUT"
+          echo "dockerhub=${owner}/fledge-with-plugins" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - uses: docker/build-push-action@v6
         id: push
@@ -121,6 +130,8 @@ jobs:
           tags: |
             ${{ steps.img.outputs.image }}:latest
             ${{ steps.img.outputs.image }}:run-${{ github.run_id }}
+            ${{ steps.img.outputs.dockerhub }}:latest
+            ${{ steps.img.outputs.dockerhub }}:run-${{ github.run_id }}
 
       - name: Record image digest
         run: |
@@ -129,9 +140,12 @@ jobs:
             echo ""
             echo '```'
             echo "${{ steps.img.outputs.image }}@${{ steps.push.outputs.digest }}"
+            echo "${{ steps.img.outputs.dockerhub }}:latest"
+            echo "${{ steps.img.outputs.dockerhub }}:run-${{ github.run_id }}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           echo "Published ${{ steps.img.outputs.image }}@${{ steps.push.outputs.digest }}"
+          echo "Published ${{ steps.img.outputs.dockerhub }}:latest"
 
   # Same gate + inventory as build-buildenv.yml / RobRaesemann/fledge docker-publish.yml.
   scan:

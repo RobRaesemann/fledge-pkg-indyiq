@@ -1,5 +1,5 @@
 ##
-## Builds and publishes the fledge-buildenv image to GHCR.
+## Builds and publishes the fledge-buildenv image to GHCR and Docker Hub.
 ## Runs when the Dockerfile changes, weekly (to pick up archive security
 ## updates via apt-get upgrade), or on demand. Plugin builds should pull
 ## the digest this workflow prints, not :latest.
@@ -33,9 +33,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Lowercase image name
+      - name: Lowercase image names
         id: img
-        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/fledge-buildenv" >> "$GITHUB_OUTPUT"
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "image=ghcr.io/${owner}/fledge-buildenv" >> "$GITHUB_OUTPUT"
+          echo "dockerhub=${owner}/fledge-buildenv" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-buildx-action@v3
 
@@ -44,6 +47,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - uses: docker/build-push-action@v6
         id: push
@@ -58,6 +66,9 @@ jobs:
             ${{ steps.img.outputs.image }}:latest
             ${{ steps.img.outputs.image }}:sha-338c653
             ${{ steps.img.outputs.image }}:sha-${{ github.sha }}
+            ${{ steps.img.outputs.dockerhub }}:latest
+            ${{ steps.img.outputs.dockerhub }}:sha-338c653
+            ${{ steps.img.outputs.dockerhub }}:sha-${{ github.sha }}
           cache-from: type=registry,ref=${{ steps.img.outputs.image }}:buildcache
           cache-to: type=registry,ref=${{ steps.img.outputs.image }}:buildcache,mode=max
 
@@ -70,9 +81,11 @@ jobs:
             echo ""
             echo '```'
             echo "${{ steps.img.outputs.image }}@${{ steps.push.outputs.digest }}"
+            echo "${{ steps.img.outputs.dockerhub }}:latest"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           echo "Published ${{ steps.img.outputs.image }}@${{ steps.push.outputs.digest }}"
+          echo "Published ${{ steps.img.outputs.dockerhub }}:latest"
 
   # Same gate + inventory as RobRaesemann/fledge docker-publish.yml.
   scan:
