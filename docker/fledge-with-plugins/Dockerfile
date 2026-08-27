@@ -61,6 +61,17 @@ RUN set -eux; \
     equivs-build fledge-equivs.control; \
     dpkg -i ./*.deb; \
     apt-get install -y /tmp/debs/*.deb; \
+    # mqtt-sparkplug's postinst pins protobuf==3.7.0 (Scout: CVE-2026-0994,
+    # CVE-2025-4565, CVE-2022-1941, CVE-2021-22570). 5.29.6 is the first 5.x
+    # that closes all four; the plugin's checked-in sparkplug_b_pb2.py is 3.x
+    # gencode and will not import, so regenerate from the .proto that shipped
+    # in the .deb, then drop the codegen toolchain.
+    python3 -m pip install --break-system-packages --no-cache-dir \
+        'protobuf==5.29.6' 'grpcio-tools==1.71.2'; \
+    spark_dir=/usr/local/fledge/python/fledge/plugins/south/mqtt_sparkplug/sparkplug_b; \
+    python3 -m grpc_tools.protoc -I"${spark_dir}" --python_out="${spark_dir}" sparkplug_b.proto; \
+    PYTHONPATH=/usr/local/fledge/python python3 -c "from fledge.plugins.south.mqtt_sparkplug.sparkplug_b import sparkplug_b_pb2; p=sparkplug_b_pb2.Payload(); p.metrics.add().name='t'"; \
+    python3 -m pip uninstall -y --break-system-packages grpcio-tools grpcio; \
     apt-get purge -y equivs python3-pip; \
     apt-get autoremove -y --purge; \
     rm -rf /tmp/equivs /tmp/debs /root/.cache /var/lib/apt/lists/*; \
