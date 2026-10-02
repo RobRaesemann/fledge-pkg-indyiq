@@ -73,6 +73,7 @@ jobs:
             fledge-filter-rms
             fledge-filter-delta
             fledge-filter-metadata
+            fledge-filter-swingingdoor
             fledge-filter-nats
             fledge-rule-average
             fledge-rule-delta
