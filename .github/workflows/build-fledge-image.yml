@@ -17,7 +17,7 @@ on:
       base_image:
         description: Fledge base image to build onto (RobRaesemann/fledge's own image, not an official fledge-iot one). Production builds use the Ubuntu 24.04 core; the 26.04 core (:indyiq-main / :latest) is experimental and its ODBC layer does not build yet.
         required: false
-        default: ghcr.io/robraesemann/fledge@sha256:fb0f81588f5ee4597ad6d8993917bdc662c1bf87e16f03d9f032824b767f4fdc
+        default: ghcr.io/robraesemann/fledge@sha256:f35f33ed01c5f291f195adbecccec9734db2141e8f0c4452bffa5fe28b4f7f92
 
 permissions:
   contents: read
@@ -116,7 +116,7 @@ jobs:
           context: docker/fledge-with-plugins
           push: true
           build-args: |
-            BASE_IMAGE=${{ inputs.base_image || 'ghcr.io/robraesemann/fledge@sha256:fb0f81588f5ee4597ad6d8993917bdc662c1bf87e16f03d9f032824b767f4fdc' }}
+            BASE_IMAGE=${{ inputs.base_image || 'ghcr.io/robraesemann/fledge@sha256:f35f33ed01c5f291f195adbecccec9734db2141e8f0c4452bffa5fe28b4f7f92' }}
           tags: |
             ${{ steps.img.outputs.image }}:latest
             ${{ steps.img.outputs.image }}:run-${{ github.run_id }}

@@ -18,8 +18,10 @@
 # BASE_IMAGE is RobRaesemann/fledge's own custom Fledge-core image (built by
 # that repo's docker-publish.yml from its indyiq/main branch — not an
 # official fledge-iot image), published public so this build can pull it.
-# Ubuntu 24.04 core (sha-338c653). Production stays on 24.04; the 26.04 core is experimental.
-ARG BASE_IMAGE=ghcr.io/robraesemann/fledge@sha256:fb0f81588f5ee4597ad6d8993917bdc662c1bf87e16f03d9f032824b767f4fdc
+# Ubuntu 24.04 core (sha-ad51e2b). Production stays on 24.04; the 26.04 core is experimental.
+# sha-338c653 and later cores ship without pip, which this Dockerfile does not yet handle
+# (the harden/fledge-buildenv branch does); keep ad51e2b until that lands.
+ARG BASE_IMAGE=ghcr.io/robraesemann/fledge@sha256:f35f33ed01c5f291f195adbecccec9734db2141e8f0c4452bffa5fe28b4f7f92
 FROM ${BASE_IMAGE}
 
 # --- Microsoft ODBC Driver 18 for SQL Server (fledge-south-rdbms) -----------
