@@ -4,7 +4,7 @@
 ## plugin and the notification service, installed from the latest successful
 ## .deb artifact on each repo's own package workflow.
 ##
-## Downloading artifacts across 39 separate (mostly private) plugin repos
+## Downloading artifacts across 41 separate (mostly private) plugin repos
 ## needs more than the default GITHUB_TOKEN can grant (it's only ever scoped
 ## to this repo) — requires a classic PAT with `repo` scope stored as the
 ## ARTIFACT_PAT secret on this repo.
@@ -47,6 +47,7 @@ jobs:
             fledge-south-s2opcua
             fledge-south-mqtt
             fledge-south-mqtt-sparkplug
+            fledge-south-nats
             foglamp-north-opcuaserver-python
             fledge-north-basekickarc
             fledge-north-questdb
@@ -72,6 +73,7 @@ jobs:
             fledge-filter-rms
             fledge-filter-delta
             fledge-filter-metadata
+            fledge-filter-nats
             fledge-rule-average
             fledge-rule-delta
             fledge-rule-outofbound
